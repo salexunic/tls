@@ -18,7 +18,7 @@
 #   powershell -NoP -EP Bypass -File deploy.ps1 -DetectOnly
 # ------------------------------------------------------------------
 param(
-    [string]$BaseUrl = "",
+    [string]$BaseUrl = "https://raw.githubusercontent.com/salexunic/tls/main",
     [string]$LocalDir = "",
     [switch]$Reverse,
     [switch]$DetectOnly,
