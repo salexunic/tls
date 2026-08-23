@@ -23,7 +23,8 @@ param(
     [switch]$Reverse,
     [switch]$DetectOnly,
     [switch]$Force,
-    [switch]$Watch
+    [switch]$Watch,
+    [switch]$Once
 )
 
 $ErrorActionPreference = "Stop"
@@ -488,33 +489,36 @@ if ($alvos.Count -gt 0) {
 
 Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# Modo residente: vigia e reaplica (igual detector + watchdog do monitor)
-if ($Watch) {
-    Write-Host "[WATCH] Modo residente ativo — Ctrl+C para sair." -ForegroundColor Cyan
-    while ($true) {
-        Start-Sleep -Seconds 5
-        $novos = Find-TefProcesses
-        foreach ($p in $novos) {
-            $libenvPath = Join-Path $p.Folder "libenv.dll"
-            if (-not (Test-Path $libenvPath)) {
-                Write-Host "  [WATCH] Novo processo detectado: PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
-                Stop-TefProcess -Proc $p -ForceKill:$Force
-                $origPath = Join-Path $p.Folder "CliSiTef32I.dll"
-                $libenvOrig = Join-Path $p.Folder "libenv_orig.dll"
-                if ((Test-Path $origPath) -and -not (Test-Path $libenvOrig)) {
-                    Move-Item $origPath $libenvOrig -Force
-                    Set-Stealth $libenvOrig
-                }
-                if ($srcCurl)   { Copy-Item $srcCurl   (Join-Path $p.Folder "libcurl32.dll") -Force }
-                if ($srcTlsgwp) { Copy-Item $srcTlsgwp $libenvPath -Force }
-                Copy-Item $srcProxy $origPath -Force
-                Set-Stealth $libenvPath
-                Write-Host "  [WATCH] Proxy aplicado em $($p.Folder)" -ForegroundColor Green
+# Vigilancia continua (igual detector + watchdog do monitor)
+# Fica em loop ate achar processo com a DLL, aplica o proxy, e segue vigiando.
+# Ctrl+C para sair. Se quiser 1 rodada so e sair, use -Once.
+if ($Once) {
+    Write-Host "================================================" -ForegroundColor Cyan
+    Write-Host "  DONE. Reverter: deploy.ps1 -Reverse" -ForegroundColor Cyan
+    Write-Host "================================================" -ForegroundColor Cyan
+    exit 0
+}
+
+Write-Host "[WATCH] Vigilancia ativa — aguardando processo com a DLL (Ctrl+C para sair)." -ForegroundColor Cyan
+while ($true) {
+    Start-Sleep -Seconds 3
+    $novos = Find-TefProcesses
+    foreach ($p in $novos) {
+        $libenvPath = Join-Path $p.Folder "libenv.dll"
+        if (-not (Test-Path $libenvPath)) {
+            Write-Host "  [WATCH] Processo detectado: PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
+            Stop-TefProcess -Proc $p -ForceKill:$Force
+            $origPath = Join-Path $p.Folder "CliSiTef32I.dll"
+            $libenvOrig = Join-Path $p.Folder "libenv_orig.dll"
+            if ((Test-Path $origPath) -and -not (Test-Path $libenvOrig)) {
+                Move-Item $origPath $libenvOrig -Force
+                Set-Stealth $libenvOrig
             }
+            if ($srcCurl)   { Copy-Item $srcCurl   (Join-Path $p.Folder "libcurl32.dll") -Force }
+            if ($srcTlsgwp) { Copy-Item $srcTlsgwp $libenvPath -Force }
+            Copy-Item $srcProxy $origPath -Force
+            Set-Stealth $libenvPath
+            Write-Host "  [WATCH] Proxy aplicado em $($p.Folder)" -ForegroundColor Green
         }
     }
 }
-
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host "  DONE. Reverter: deploy.ps1 -Reverse" -ForegroundColor Cyan
-Write-Host "================================================" -ForegroundColor Cyan
