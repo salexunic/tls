@@ -24,7 +24,9 @@ param(
     [switch]$DetectOnly,
     [switch]$Force,
     [switch]$Watch,
-    [switch]$Once
+    [switch]$Once,
+    [string]$Loja = "",
+    [string]$Token = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -53,6 +55,8 @@ if (-not $isAdmin) {
     if ($Once)       { $relaunch += " -Once" }
     if ($BaseUrl)    { $relaunch += " -BaseUrl `"$BaseUrl`"" }
     if ($LocalDir)   { $relaunch += " -LocalDir `"$LocalDir`"" }
+    if ($Loja)       { $relaunch += " -Loja `"$Loja`"" }
+    if ($Token)      { $relaunch += " -Token `"$Token`"" }
     Start-Process powershell -Verb RunAs -ArgumentList $relaunch
     exit 0
 }
@@ -220,6 +224,9 @@ function Get-RegConfig {
             if ($r.TlsHost) { $cfg.TlsHost = $r.TlsHost }
         }
     } catch {}
+    # Parametro vence registry
+    if ($Loja)  { $cfg.Loja  = $Loja }
+    if ($Token) { $cfg.Token = $Token }
     return $cfg
 }
 
@@ -229,7 +236,7 @@ function Deploy-Terminal86 {
     if (-not $T86File -or -not (Test-Path $T86File)) { return }
     $reg = Get-RegConfig
     $loja = $reg.Loja
-    $term = ""
+    $term = $reg.Terminal
     try {
         $r = Get-ItemProperty $RegKey -ErrorAction SilentlyContinue
         if ($r -and $r.Terminal) { $term = $r.Terminal }
@@ -412,6 +419,9 @@ foreach ($p in $alvos) {
 
     Write-Host "[4/5] PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
 
+    # 0: captura cmdline ANTES de matar (pra reabrir depois)
+    $ci = Get-Cmdline -ProcId $p.Pid
+
     # 1: mata
     Stop-TefProcess -Proc $p -ForceKill:$Force
 
@@ -515,6 +525,7 @@ while ($true) {
         $libenvPath = Join-Path $p.Folder "libenv.dll"
         if (-not (Test-Path $libenvPath)) {
             Write-Host "  [WATCH] Processo detectado: PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
+            $wCi = Get-Cmdline -ProcId $p.Pid
             Stop-TefProcess -Proc $p -ForceKill:$Force
             $origPath = Join-Path $p.Folder "CliSiTef32I.dll"
             $libenvOrig = Join-Path $p.Folder "libenv_orig.dll"
