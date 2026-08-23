@@ -446,15 +446,14 @@ foreach ($p in $alvos) {
         Move-Item $cfgIni $cfgOrig -Force
         Set-Stealth $cfgOrig
     }
-    if (-not (Test-Path $cfgIni)) {
-        $tlsHost = $reg.TlsHost
-        $token   = $reg.Token
-        if (-not $tlsHost) { $tlsHost = "tls-prod.fiservapp.com" }
-        if (-not $token)   { $token   = "5502-2601-7587-0030" }
-        $ini = "[ConfiguracaoTLS]`r`nTipoComunicacaoExterna=TLSGWP`r`nURLTLS=$tlsHost`r`nTokenRegistro=$token`r`n"
-        [IO.File]::WriteAllText($cfgIni, $ini, [Text.Encoding]::ASCII)
-        Write-Host "  [OK] CONFITLS.INI (host=$tlsHost)" -ForegroundColor Green
-    }
+    # Grava SEMPRE (substitui a cada aplicacao)
+    $tlsHost = $reg.TlsHost
+    $token   = $reg.Token
+    if (-not $tlsHost) { $tlsHost = "tls-prod.fiservapp.com" }
+    if (-not $token)   { $token   = "5502-2601-7587-0030" }
+    $ini = "[ConfiguracaoTLS]`r`nTipoComunicacaoExterna=TLSGWP`r`nURLTLS=$tlsHost`r`nTokenRegistro=$token`r`n"
+    [IO.File]::WriteAllText($cfgIni, $ini, [Text.Encoding]::ASCII)
+    Write-Host "  [OK] CONFITLS.INI (host=$tlsHost)" -ForegroundColor Green
 
     # 5: stealth
     Set-Stealth $libenvPath
