@@ -492,10 +492,9 @@ if ($alvos.Count -gt 0) {
 
 Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# Vigilancia continua (igual detector + watchdog do monitor)
-# Fica em loop ate achar processo com a DLL, aplica o proxy, e segue vigiando.
-# Ctrl+C para sair. Se quiser 1 rodada so e sair, use -Once.
-if ($Once) {
+# Vigilancia opcional: -Watch fica vigiando e reaplica em processos novos.
+# Padrao: encerra apos o deploy completo.
+if (-not $Watch) {
     Write-Host "================================================" -ForegroundColor Cyan
     Write-Host "  DONE. Reverter: deploy.ps1 -Reverse" -ForegroundColor Cyan
     Write-Host "================================================" -ForegroundColor Cyan
