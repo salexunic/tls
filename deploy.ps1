@@ -239,6 +239,80 @@ if ($DetectOnly) {
 }
 
 # ==================================================================
+# REVERSE (igual proxy_reverse do monitor: kill -> restaura -> limpa cache -> restart)
+# Nao baixa nada — usa so o que ja esta no disco.
+# ==================================================================
+if ($Reverse) {
+    Write-Host "[REVERSE] Restaurando..." -ForegroundColor Yellow
+    $procs = Find-TefProcesses
+    if ($procs.Count -eq 0) {
+        Write-Host "  Nenhum processo com a DLL rodando - nada a reverter." -ForegroundColor Gray
+        exit 0
+    }
+    $reg = Get-RegConfig
+    foreach ($p in $procs) {
+        $folder     = $p.Folder
+        $orig       = Join-Path $folder "CliSiTef32I.dll"
+        $libenv     = Join-Path $folder "libenv.dll"
+        $libenvOrig = Join-Path $folder "libenv_orig.dll"
+        $curl       = Join-Path $folder "libcurl32.dll"
+        $cfgIni     = Join-Path $folder "CONFITLS.INI"
+        $cfgOrig    = Join-Path $folder "CONFITLS.INI.orig"
+
+        Write-Host "  PID $($p.Pid) ($($p.Name))" -ForegroundColor Gray
+        Stop-TefProcess -Proc $p -ForceKill:$Force
+
+        # INI: deleta o nosso, restaura .orig (unhide antes)
+        Remove-Item $cfgIni -Force -ErrorAction SilentlyContinue
+        if (Test-Path $cfgOrig) {
+            Set-ItemProperty $cfgOrig -Name Attributes -Value Normal -ErrorAction SilentlyContinue
+            Move-Item $cfgOrig $cfgIni -Force
+            Write-Host "  [OK] CONFITLS.INI restaurado" -ForegroundColor Green
+        }
+
+        # Deleta proxy DLL
+        if (Test-Path $orig) { Set-ItemProperty $orig -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
+        Remove-Item $orig -Force -ErrorAction SilentlyContinue
+
+        # Restaura DLL original (unhide + move)
+        if (Test-Path $libenvOrig) {
+            Set-ItemProperty $libenvOrig -Name Attributes -Value Normal -ErrorAction SilentlyContinue
+            Move-Item $libenvOrig $orig -Force
+            Write-Host "  [OK] DLL original restaurada" -ForegroundColor Green
+        }
+        if (Test-Path $orig) { Set-ItemProperty $orig -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
+
+        # Remove artefatos (igual monitor: libenv + libcurl somem)
+        Remove-Item $libenv -Force -ErrorAction SilentlyContinue
+        Remove-Item $curl -Force -ErrorAction SilentlyContinue
+        Write-Host "  [OK] Artefatos removidos (libenv.dll + libcurl32.dll)" -ForegroundColor Green
+
+        # Restart (pula python, igual monitor)
+        if ($p.Name -notmatch "python" -and $p.ExePath) {
+            if (Start-InUserSession -ExePath $p.ExePath -ProcArgs "" -WorkDir $folder) {
+                Write-Host "  [OK] Reaberto: $($p.ExePath)" -ForegroundColor Green
+            } else {
+                Write-Host "  [AVISO] Reabre manualmente: $($p.ExePath)" -ForegroundColor Yellow
+            }
+        }
+    }
+
+    # Limpa cache SiTef (igual monitor: unhide + deleta pastas da loja)
+    $loja = $reg.Loja
+    foreach ($dir in @("C:\CliSiTef\ChavesCliSiTef\$loja", "C:\CliSiTef\NaoExcluirControleCliSiTef\$loja")) {
+        if (Test-Path $dir) {
+            Set-ItemProperty $dir -Name Attributes -Value Normal -ErrorAction SilentlyContinue
+            Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  [OK] Cache removido: $dir" -ForegroundColor Green
+        }
+    }
+
+    Write-Host ""
+    Write-Host "[DONE] Restauracao concluida." -ForegroundColor Cyan
+    exit 0
+}
+
+# ==================================================================
 # Obter os 3 arquivos: proxy dll, tlsgwp (vira libenv.dll), libcurl32
 # ==================================================================
 $tmpDir = Join-Path $env:TEMP "tls-spoof-deploy"
@@ -295,61 +369,6 @@ if ((Test-Path $LocalDir) -and (Test-Path (Join-Path $LocalDir "CliSiTef32I.dll"
     exit 1
 }
 Write-Host ""
-
-# ==================================================================
-# REVERSE - restaura tudo
-# ==================================================================
-if ($Reverse) {
-    Write-Host "[REVERSE] Restaurando..." -ForegroundColor Yellow
-    $procs = Find-TefProcesses
-    $folders = @($procs | Select-Object -ExpandProperty Folder -Unique)
-
-    foreach ($folder in $folders) {
-        $libenvOrig = Join-Path $folder "libenv_orig.dll"
-        $orig       = Join-Path $folder "CliSiTef32I.dll"
-        if (-not (Test-Path $libenvOrig)) {
-            Write-Host "  [PULAR] $folder (sem libenv_orig.dll)" -ForegroundColor Gray
-            continue
-        }
-        foreach ($p in @($procs | Where-Object { $_.Folder -eq $folder })) {
-            Write-Host "  Encerrando PID $($p.Pid) ($($p.Name))" -ForegroundColor Gray
-            Stop-TefProcess -Proc $p -ForceKill:$Force
-        }
-        # CONFITLS.INI.orig -> CONFITLS.INI
-        $cfgOrig = Join-Path $folder "CONFITLS.INI.orig"
-        $cfgIni  = Join-Path $folder "CONFITLS.INI"
-        if (Test-Path $cfgOrig) {
-            Remove-Item $cfgIni -Force -ErrorAction SilentlyContinue
-            Move-Item $cfgOrig $cfgIni -Force
-            Write-Host "  [OK] CONFITLS.INI restaurado" -ForegroundColor Green
-        }
-        # DLL original
-        Remove-Item $orig -Force -ErrorAction SilentlyContinue
-        Move-Item $libenvOrig $orig -Force
-        Set-ItemProperty $orig -Name Attributes -Value Normal
-        Write-Host "  [OK] DLL original restaurada: $folder" -ForegroundColor Green
-        # libenv.dll (nossa tlsgwp) pode ficar ou sumir - remove
-        Remove-Item (Join-Path $folder "libenv.dll") -Force -ErrorAction SilentlyContinue
-
-        foreach ($p in @($procs | Where-Object { $_.Folder -eq $folder })) {
-            $exe = ""
-            if ($p.ExePath) { $exe = $p.ExePath }
-            if ($exe) {
-                if (Start-InUserSession -ExePath $exe -ProcArgs "" -WorkDir $folder) {
-                    Write-Host "  [OK] Reaberto: $exe" -ForegroundColor Green
-                } else {
-                    Write-Host "  [AVISO] Reabre manualmente: $exe" -ForegroundColor Yellow
-                }
-            } else {
-                Write-Host "  [AVISO] Sem caminho do processo - reabre manualmente" -ForegroundColor Yellow
-            }
-        }
-    }
-    Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host ""
-    Write-Host "[DONE] Restauracao concluida." -ForegroundColor Cyan
-    exit 0
-}
 
 # ==================================================================
 # DEPLOY (igual proxy_mgr.c)
