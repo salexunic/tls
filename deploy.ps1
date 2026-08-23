@@ -260,6 +260,8 @@ if ($Reverse) {
         $cfgOrig    = Join-Path $folder "CONFITLS.INI.orig"
 
         Write-Host "  PID $($p.Pid) ($($p.Name))" -ForegroundColor Gray
+        # Captura cmdline ANTES de matar (pra reabrir com os mesmos args)
+        $ci = Get-Cmdline -ProcId $p.Pid
         Stop-TefProcess -Proc $p -ForceKill:$Force
 
         # INI: deleta o nosso, restaura .orig (unhide antes)
@@ -287,12 +289,27 @@ if ($Reverse) {
         Remove-Item $curl -Force -ErrorAction SilentlyContinue
         Write-Host "  [OK] Artefatos removidos (libenv.dll + libcurl32.dll)" -ForegroundColor Green
 
-        # Restart (pula python, igual monitor)
-        if ($p.Name -notmatch "python" -and $p.ExePath) {
-            if (Start-InUserSession -ExePath $p.ExePath -ProcArgs "" -WorkDir $folder) {
-                Write-Host "  [OK] Reaberto: $($p.ExePath)" -ForegroundColor Green
+        # Restart (igual deploy: cmdline completa capturada antes do kill)
+        if ($p.Name -notmatch "python") {
+            $exe = ""
+            $procArgs = ""
+            if ($ci -and $ci.Exe) {
+                $exe = $ci.Exe
+                if ($ci.Cmd -and $ci.Cmd.StartsWith('"')) {
+                    $m = [regex]::Match($ci.Cmd, '^"([^"]+)"\s*(.*)$')
+                    if ($m.Success) { $procArgs = $m.Groups[2].Value }
+                }
+            } elseif ($p.ExePath) {
+                $exe = $p.ExePath
+            }
+            if ($exe) {
+                if (Start-InUserSession -ExePath $exe -ProcArgs $procArgs -WorkDir $folder) {
+                    Write-Host "  [OK] Reaberto: $exe" -ForegroundColor Green
+                } else {
+                    Write-Host "  [AVISO] Reabre manualmente: $exe" -ForegroundColor Yellow
+                }
             } else {
-                Write-Host "  [AVISO] Reabre manualmente: $($p.ExePath)" -ForegroundColor Yellow
+                Write-Host "  [AVISO] Sem caminho do processo - reabre manualmente" -ForegroundColor Yellow
             }
         }
     }
