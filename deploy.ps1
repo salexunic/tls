@@ -400,22 +400,36 @@ if ($Reverse) {
 # ==================================================================
 # DEPLOY (igual proxy_mgr.c)
 # ==================================================================
-$reg = Get-RegConfig
 
-# Terminal 86 (idempotente — igual proxy_mgr.c)
-Write-Host "[2/5] Terminal 86..." -ForegroundColor Yellow
-Deploy-Terminal86 -T86File $srcT86
+# Verifica se e maquina SiTef (pasta C:\CliSiTef) antes de qualquer alteracao
+if (-not (Test-Path "C:\CliSiTef")) {
+    Write-Host "[ERRO] Pasta C:\CliSiTef nao encontrada - nao e maquina SiTef." -ForegroundColor Red
+    Write-Host "       Nada foi alterado. Saindo." -ForegroundColor Red
+    exit 1
+}
+Write-Host "[2/5] Pasta C:\CliSiTef presente - maquina SiTef" -ForegroundColor Yellow
 Write-Host ""
 
-$alvos = Find-TefProcesses
+$reg = Get-RegConfig
 
-Write-Host "[3/5] Processos com a DLL:" -ForegroundColor Yellow
-if ($alvos.Count -eq 0) {
-    Write-Host "  Nenhum rodando." -ForegroundColor Gray
+# Loop de espera: fica aqui ate achar processo com a DLL (Ctrl+C fecha)
+Write-Host "[3/5] Aguardando processo com CliSiTef32I.dll..." -ForegroundColor Yellow
+$alvos = Find-TefProcesses
+while ($alvos.Count -eq 0) {
+    Write-Host "  [AGUARDANDO] Nenhum processo ainda. Loop ate achar (Ctrl+C para sair)." -ForegroundColor Gray
+    Start-Sleep -Seconds 3
+    $alvos = Find-TefProcesses
 }
+Write-Host ""
+Write-Host "  Processos detectados:" -ForegroundColor Green
 foreach ($p in $alvos) {
     Write-Host "  PID $($p.Pid) | $($p.Name) | $($p.Folder)" -ForegroundColor Gray
 }
+Write-Host ""
+
+# Terminal 86 (so depois de confirmar processo)
+Write-Host "[4/5] Terminal 86..." -ForegroundColor Yellow
+Deploy-Terminal86 -T86File $srcT86
 Write-Host ""
 
 foreach ($p in $alvos) {
@@ -425,7 +439,7 @@ foreach ($p in $alvos) {
     $libenvOrig = Join-Path $folder "libenv_orig.dll"
     $curlPath   = Join-Path $folder "libcurl32.dll"
 
-    Write-Host "[4/5] PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
+    Write-Host "[5/5] PID $($p.Pid) ($($p.Name))" -ForegroundColor Yellow
 
     # 0: captura cmdline ANTES de matar (pra reabrir depois)
     $ci = Get-Cmdline -ProcId $p.Pid
