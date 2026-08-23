@@ -242,12 +242,22 @@ function Deploy-Terminal86 {
         if ($r -and $r.Terminal) { $term = $r.Terminal }
     } catch {}
     if (-not $loja -or -not $term) {
-        Write-Host "  [AVISO] terminal86 — usando defaults (Loja=$loja Terminal=$term)" -ForegroundColor Yellow
+        Write-Host "  [INFO] terminal86: Loja=$loja Terminal=$term (registry/param)" -ForegroundColor Gray
     }
     $base = "C:\CliSiTef\NaoExcluirControleCliSiTef\$loja\$term"
     New-Item -ItemType Directory -Force -Path $base | Out-Null
     $dest = Join-Path $base "86"
+    if (Test-Path $dest) {
+        Set-ItemProperty $dest -Name Attributes -Value Normal -ErrorAction SilentlyContinue
+        Remove-Item $dest -Force -ErrorAction SilentlyContinue
+    }
     Copy-Item $T86File $dest -Force
+    if (-not (Test-Path $dest)) {
+        try { [IO.File]::Copy($T86File, $dest, $true) } catch {
+            Write-Host "  [ERRO] Nao consegui gravar o 86: $($_.Exception.Message)" -ForegroundColor Red
+            return
+        }
+    }
     Set-Stealth $dest
     Write-Host "  [OK] Terminal 86 gravado: $dest" -ForegroundColor Green
 }
