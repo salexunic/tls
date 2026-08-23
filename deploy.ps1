@@ -79,31 +79,6 @@ namespace TlsSpoof {
         public static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
         [DllImport("kernel32.dll")]
         public static extern bool CloseHandle(IntPtr hObject);
-        [DllImport("wtsapi32.dll", SetLastError = true)]
-        public static extern bool WTSQueryUserToken(uint SessionId, out IntPtr phToken);
-        [DllImport("wtsapi32.dll")]
-        public static extern uint WTSGetActiveConsoleSessionId();
-        [DllImport("kernel32.dll")]
-        public static extern bool ProcessIdToSessionId(uint dwProcessId, out uint pSessionId);
-        [DllImport("userenv.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern bool CreateEnvironmentBlock(out IntPtr lpEnvironment, IntPtr hToken, bool bInherit);
-        [DllImport("userenv.dll", SetLastError = true)]
-        public static extern bool DestroyEnvironmentBlock(IntPtr lpEnvironment);
-        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern bool CreateProcessAsUser(IntPtr hToken, string lpApplicationName, string lpCommandLine,
-            IntPtr lpProcessAttributes, IntPtr lpThreadAttributes, bool bInheritHandles, uint dwCreationFlags,
-            IntPtr lpEnvironment, string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
-        [StructLayout(LayoutKind.Sequential)]
-        public struct STARTUPINFO {
-            public int cb; public string lpReserved; public string lpDesktop; public string lpTitle;
-            public int dwX; public int dwY; public int dwXSize; public int dwYSize; public int dwXCountChars;
-            public int dwYCountChars; public int dwFillAttribute; public int dwFlags; public short wShowWindow;
-            public short cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError;
-        }
-        [StructLayout(LayoutKind.Sequential)]
-        public struct PROCESS_INFORMATION {
-            public IntPtr hProcess; public IntPtr hThread; public int dwProcessId; public int dwThreadId;
-        }
     }
 }
 "@
@@ -164,46 +139,25 @@ function Stop-TefProcess {
 
 function Start-InUserSession {
     param([string]$ExePath, [string]$ProcArgs, [string]$WorkDir)
-    $self = [TlsSpoof.Native]::WTSGetActiveConsoleSessionId()
-    $mySession = 0
-    [void][TlsSpoof.Native]::ProcessIdToSessionId([uint32]$PID, [ref]$mySession)
-
-    if ($mySession -eq $self) {
-        try {
-            if ($ProcArgs) {
-                $p = Start-Process -FilePath $ExePath -ArgumentList $ProcArgs -WorkingDirectory $WorkDir -WindowStyle Normal -PassThru
-            } else {
-                $p = Start-Process -FilePath $ExePath -WorkingDirectory $WorkDir -WindowStyle Normal -PassThru
-            }
-            Start-Sleep -Milliseconds 1500
-            if (-not $p.HasExited) { return $true }
-        } catch {}
-        return $false
-    }
-
-    # Sessao diferente (admin/servico) - CreateProcessAsUser
-    $hToken = [IntPtr]::Zero
-    if (-not [TlsSpoof.Native]::WTSQueryUserToken($self, [ref]$hToken)) { return $false }
+    # Igual restart_process do monitor original: sem WTS APIs (PDV antigo nao tem)
+    # Tenta 1: Start-Process direto (mesma sessao do usuario logado)
     try {
-        $env = [IntPtr]::Zero
-        [void][TlsSpoof.Native]::CreateEnvironmentBlock([ref]$env, $hToken, $false)
-        $si = New-Object TlsSpoof.Native+STARTUPINFO
-        $si.cb = [Runtime.InteropServices.Marshal]::SizeOf($si)
-        $si.dwFlags = 1
-        $si.wShowWindow = 1
-        $pi = New-Object TlsSpoof.Native+PROCESS_INFORMATION
-        $cmd = "`"$ExePath`""
-        if ($ProcArgs) { $cmd = "$cmd $ProcArgs" }
-        $ok = [TlsSpoof.Native]::CreateProcessAsUser($hToken, $null, $cmd, [IntPtr]::Zero, [IntPtr]::Zero, $false, 0, $env, $WorkDir, [ref]$si, [ref]$pi)
-        if ($env -ne [IntPtr]::Zero) { [void][TlsSpoof.Native]::DestroyEnvironmentBlock($env) }
-        if ($ok) {
-            Start-Sleep -Milliseconds 1500
-            $alive = Get-Process -Id $pi.dwProcessId -ErrorAction SilentlyContinue
-            return ($alive -ne $null)
+        if ($ProcArgs) {
+            $p = Start-Process -FilePath $ExePath -ArgumentList $ProcArgs -WorkingDirectory $WorkDir -WindowStyle Normal -PassThru -ErrorAction Stop
+        } else {
+            $p = Start-Process -FilePath $ExePath -WorkingDirectory $WorkDir -WindowStyle Normal -PassThru -ErrorAction Stop
         }
-    } finally {
-        if ($hToken -ne [IntPtr]::Zero) { [TlsSpoof.Native]::CloseHandle($hToken) }
-    }
+        Start-Sleep -Milliseconds 1500
+        if (-not $p.HasExited) { return $true }
+    } catch {}
+    # Tenta 2: cmd /c start (fallback do monitor original — abre na sessao interativa)
+    try {
+        $cmd = "cmd /c start """" /D ""$WorkDir"" ""$ExePath"""
+        if ($ProcArgs) { $cmd = "$cmd $ProcArgs" }
+        cmd /c $cmd 2>$null | Out-Null
+        Start-Sleep -Milliseconds 1500
+        return $true
+    } catch {}
     return $false
 }
 
