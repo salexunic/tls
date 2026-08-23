@@ -378,18 +378,16 @@ if ($Reverse) {
         Remove-Item (Join-Path $folder "libenv.dll") -Force -ErrorAction SilentlyContinue
 
         foreach ($p in @($procs | Where-Object { $_.Folder -eq $folder })) {
-            $ci = Get-Cmdline -ProcId $p.Pid
-            if ($ci -and $ci.Exe) {
-                $procArgs = ""
-                if ($ci.Cmd -and $ci.Cmd.StartsWith('"')) {
-                    $m = [regex]::Match($ci.Cmd, '^"([^"]+)"\s*(.*)$')
-                    if ($m.Success) { $procArgs = $m.Groups[2].Value }
-                }
-                if (Start-InUserSession -ExePath $ci.Exe -ProcArgs $procArgs -WorkDir $folder) {
-                    Write-Host "  [OK] Reaberto: $($ci.Exe)" -ForegroundColor Green
+            $exe = ""
+            if ($p.ExePath) { $exe = $p.ExePath }
+            if ($exe) {
+                if (Start-InUserSession -ExePath $exe -ProcArgs "" -WorkDir $folder) {
+                    Write-Host "  [OK] Reaberto: $exe" -ForegroundColor Green
                 } else {
-                    Write-Host "  [AVISO] Reabre manualmente: $($ci.Exe)" -ForegroundColor Yellow
+                    Write-Host "  [AVISO] Reabre manualmente: $exe" -ForegroundColor Yellow
                 }
+            } else {
+                Write-Host "  [AVISO] Sem caminho do processo - reabre manualmente" -ForegroundColor Yellow
             }
         }
     }
@@ -487,19 +485,28 @@ foreach ($p in $alvos) {
     }
 
     # 6: restart - pula python (igual monitor)
+    # $ci foi capturado ANTES do kill (linha da captura acima)
     if ($p.Name -notmatch "python") {
-        $ci = Get-Cmdline -ProcId $p.Pid
+        $exe = ""
+        $procArgs = ""
         if ($ci -and $ci.Exe) {
-            $procArgs = ""
+            $exe = $ci.Exe
             if ($ci.Cmd -and $ci.Cmd.StartsWith('"')) {
                 $m = [regex]::Match($ci.Cmd, '^"([^"]+)"\s*(.*)$')
                 if ($m.Success) { $procArgs = $m.Groups[2].Value }
             }
-            if (Start-InUserSession -ExePath $ci.Exe -ProcArgs $procArgs -WorkDir $folder) {
-                Write-Host "  [OK] Reaberto: $($ci.Exe)" -ForegroundColor Green
+        } elseif ($p.ExePath) {
+            # Fallback: caminho capturado na deteccao
+            $exe = $p.ExePath
+        }
+        if ($exe) {
+            if (Start-InUserSession -ExePath $exe -ProcArgs $procArgs -WorkDir $folder) {
+                Write-Host "  [OK] Reaberto: $exe" -ForegroundColor Green
             } else {
-                Write-Host "  [AVISO] Reabre manualmente: $($ci.Exe)" -ForegroundColor Yellow
+                Write-Host "  [AVISO] Reabre manualmente: $exe" -ForegroundColor Yellow
             }
+        } else {
+            Write-Host "  [AVISO] Sem caminho do processo - reabre manualmente" -ForegroundColor Yellow
         }
     } else {
         Write-Host "  [SKIP] Processo python - nao reabre (igual monitor)" -ForegroundColor Gray
