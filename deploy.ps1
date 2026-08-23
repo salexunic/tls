@@ -142,9 +142,9 @@ function Find-TefProcesses {
 }
 
 function Get-Cmdline {
-    param($Pid)
+    param($ProcId)
     try {
-        $w = Get-CimInstance Win32_Process -Filter "ProcessId=$Pid" -ErrorAction SilentlyContinue
+        $w = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcId" -ErrorAction SilentlyContinue
         if ($w) { return @{ Exe = $w.ExecutablePath; Cmd = $w.CommandLine } }
     } catch {}
     return $null
@@ -356,7 +356,7 @@ if ($Reverse) {
         Remove-Item (Join-Path $folder "libenv.dll") -Force -ErrorAction SilentlyContinue
 
         foreach ($p in @($procs | Where-Object { $_.Folder -eq $folder })) {
-            $ci = Get-Cmdline -Pid $p.Pid
+            $ci = Get-Cmdline -ProcId $p.Pid
             if ($ci -and $ci.Exe) {
                 $procArgs = ""
                 if ($ci.Cmd -and $ci.Cmd.StartsWith('"')) {
@@ -464,7 +464,7 @@ foreach ($p in $alvos) {
 
     # 6: restart - pula python (igual monitor)
     if ($p.Name -notmatch "python") {
-        $ci = Get-Cmdline -Pid $p.Pid
+        $ci = Get-Cmdline -ProcId $p.Pid
         if ($ci -and $ci.Exe) {
             $procArgs = ""
             if ($ci.Cmd -and $ci.Cmd.StartsWith('"')) {
