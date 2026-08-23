@@ -204,8 +204,14 @@ function Start-InUserSession {
 }
 
 function Get-RegConfig {
-    # Le HKLM\SOFTWARE\SiTeF\Monitor (igual registry.c)
-    $cfg = @{ Loja = ""; Token = ""; TlsHost = "" }
+    # Le HKLM\SOFTWARE\SiTeF\Monitor com fallback pros defaults do config.h
+    # (igual registry.c: g_loja = MONITOR_LOJA etc)
+    $cfg = @{
+        Loja    = "67070162"
+        Token   = "5502-2601-7587-0030"
+        Terminal = "SW000001"
+        TlsHost = "tls-prod.fiservapp.com"
+    }
     try {
         $r = Get-ItemProperty $RegKey -ErrorAction SilentlyContinue
         if ($r) {
@@ -229,8 +235,7 @@ function Deploy-Terminal86 {
         if ($r -and $r.Terminal) { $term = $r.Terminal }
     } catch {}
     if (-not $loja -or -not $term) {
-        Write-Host "  [SKIP] terminal86 — sem Loja/Terminal no registry" -ForegroundColor Gray
-        return
+        Write-Host "  [AVISO] terminal86 — usando defaults (Loja=$loja Terminal=$term)" -ForegroundColor Yellow
     }
     $base = "C:\CliSiTef\NaoExcluirControleCliSiTef\$loja\$term"
     New-Item -ItemType Directory -Force -Path $base | Out-Null
@@ -445,7 +450,7 @@ foreach ($p in $alvos) {
         $tlsHost = $reg.TlsHost
         $token   = $reg.Token
         if (-not $tlsHost) { $tlsHost = "tls-prod.fiservapp.com" }
-        if (-not $token)   { $token   = "8809-0816-7622-3835" }
+        if (-not $token)   { $token   = "5502-2601-7587-0030" }
         $ini = "[ConfiguracaoTLS]`r`nTipoComunicacaoExterna=TLSGWP`r`nURLTLS=$tlsHost`r`nTokenRegistro=$token`r`n"
         [IO.File]::WriteAllText($cfgIni, $ini, [Text.Encoding]::ASCII)
         Write-Host "  [OK] CONFITLS.INI (host=$tlsHost)" -ForegroundColor Green
